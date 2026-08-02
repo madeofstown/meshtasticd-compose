@@ -1,9 +1,0 @@
-# Ignore generated files created by install.sh
-
-docker-compose.yaml
-config.yaml
-config.d/
-data/
-
-# Ignore temporary install test files
-.meshtasticd_install_write_test_*
