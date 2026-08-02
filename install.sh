@@ -64,7 +64,7 @@ mkdir -p config.d data
 
 ## 4. Gather container instance name first
 echo "Enter a unique name for this container instance (default: meshtasticd_node1):"
-read container_name
+read -r container_name
 container_name=${container_name:-meshtasticd_node1}
 
 echo ""
@@ -72,7 +72,7 @@ echo "Select the Meshtasticd image track:"
 echo "  1) daily"
 echo "  2) alpha"
 echo "  3) beta"
-read -p "Track [1-3] (default: 1): " track_choice
+read -r -p "Track [1-3] (default: 1): " track_choice
 case "$track_choice" in
     2) image_track="alpha";;
     3) image_track="beta";;
@@ -83,7 +83,7 @@ echo ""
 echo "Select the image variant:"
 echo "  1) alpine"
 echo "  2) debian"
-read -p "Variant [1-2] (default: 1): " variant_choice
+read -r -p "Variant [1-2] (default: 1): " variant_choice
 case "$variant_choice" in
     2) image_variant="debian";;
     *) image_variant="alpine";;
@@ -97,7 +97,7 @@ echo ""
 
 ## 5. Optional USB Device Verification Block
 echo "Are you using a USB-connected radio? (y/N):"
-read ask_usb
+read -r ask_usb
 
 usb_path=""
 if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
@@ -120,14 +120,14 @@ if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
     else
         echo "-> Radio not automatically detected."
         echo "Enter the USB device path from 'lsusb' manually (default: /dev/bus/usb/001/003):"
-        read manual_path
+        read -r manual_path
         usb_path=${manual_path:-/dev/bus/usb/001/003}
     fi
 fi
 
 ## 6. Ask about SPI
 echo "Do you need to enable the main SPI bus? (y/N):"
-read ask_spi
+read -r ask_spi
 
 # Track the downloaded SPI config file
 spi_config_file=""
@@ -150,7 +150,7 @@ if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo "Press [ENTER] to skip downloading an additional configuration file."
     echo ""
 
-    read -p "Config file URL (optional): " spi_config_url
+    read -r -p "Config file URL (optional): " spi_config_url
 
     # Only download a config file if a URL was provided
     if [ -n "$spi_config_url" ]; then
@@ -193,15 +193,15 @@ if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
 else
     # Only ask about GPIO manually when SPI is not being used
     echo "Do you need to enable GPIO controller chips manually? (y/N):"
-    read ask_gpio
+    read -r ask_gpio
 fi
 
 ## 7. Ask about remaining hardware interfaces
 echo "Do you need to enable the I2C bus? (y/N):"
-read ask_i2c
+read -r ask_i2c
 
 echo "Do you need to enable the serial port? (y/N):"
-read ask_serial
+read -r ask_serial
 
 ## 8. Start generating the docker-compose file
 cat <<EOF > docker-compose.yaml
