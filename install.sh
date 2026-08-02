@@ -1,3 +1,4 @@
+```bash
 #!/bin/bash
 
 # 1. Ensure the script is running with root privileges (required for /opt/)
@@ -39,7 +40,12 @@ echo "Ensuring required folders exist..."
 mkdir -p config.d data
 chmod 755 config.d data
 
-# 4. Optional USB Device Verification Block
+# 4. Gather container instance name first
+echo "Enter a unique name for this container instance (default: meshtasticd_node1):"
+read container_name
+container_name=${container_name:-meshtasticd_node1}
+
+# 5. Optional USB Device Verification Block
 echo "Are you using a USB-connected radio? (y/N):"
 read ask_usb
 
@@ -69,44 +75,77 @@ if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
     fi
 fi
 
-# 5. Gather remaining configuration inputs
-echo "Enter a unique name for this container instance (default: meshtasticd_node1):"
-read container_name
-container_name=${container_name:-meshtasticd_node1}
-
+# 6. Ask about SPI
 echo "Do you need to enable the main SPI bus? (y/N):"
 read ask_spi
 
-# Handle manual SPI configuration instructions and automatic GPIO mapping
+# Track the downloaded SPI config file
+spi_config_file=""
+
+# Handle SPI configuration
 if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo "-> SPI enabled. GPIO chips will be automatically enabled for radio pins."
     ask_gpio="y"
 
     echo ""
     echo "========================================================================"
-    echo " ACTION REQUIRED: SPI Radio Configuration Profile Needed"
+    echo " SPI Radio Configuration Profile"
     echo "========================================================================"
-    echo "Please visit this URL in your browser:"
-    echo "https://github.com"
+    echo "Enter the URL of the .yaml configuration file required for your SPI radio."
+    echo "Example:"
+    echo "https://raw.githubusercontent.com/meshtastic/firmware/develop/bin/config.d/lora-LoRaPi-900M2213S.yaml"
     echo ""
-    echo "1. Find and download the exact .yaml file that matches your SPI radio hardware."
-    echo "2. Place that downloaded file directly into the local 'config.d/' directory."
-    echo "========================================================================"
-    echo ""
-    read -p "Once you have dropped the file into 'config.d/', press [ENTER] to continue..."
+    read -p "Config file URL: " spi_config_url
+
+    if [ -z "$spi_config_url" ]; then
+        echo "!! Error: No SPI configuration URL was provided."
+        exit 1
+    fi
+
+    # Extract filename from URL
+    spi_config_file=$(basename "${spi_config_url%%\?*}")
+
+    if [ -z "$spi_config_file" ] || [[ "$spi_config_file" != *.yaml ]]; then
+        echo "!! Error: The provided URL does not appear to point to a .yaml file."
+        exit 1
+    fi
+
+    echo "-> Downloading SPI radio configuration..."
+    echo "-> URL: $spi_config_url"
+    echo "-> Destination: config.d/$spi_config_file"
+
+    if command -v curl >/dev/null 2>&1; then
+        curl -fSL "$spi_config_url" -o "config.d/$spi_config_file"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q "$spi_config_url" -O "config.d/$spi_config_file"
+    else
+        echo "!! Error: Neither curl nor wget was found. Please install one to download the config."
+        exit 1
+    fi
+
+    if [ $? -eq 0 ] && [ -s "config.d/$spi_config_file" ]; then
+        chmod 644 "config.d/$spi_config_file"
+        echo "-> Success! SPI configuration saved to config.d/$spi_config_file"
+    else
+        echo "!! Error: Failed to download the SPI configuration file."
+        rm -f "config.d/$spi_config_file"
+        exit 1
+    fi
 else
+    # Only ask about GPIO manually when SPI is not being used
     echo "Do you need to enable GPIO controller chips manually? (y/N):"
     read ask_gpio
 fi
 
+# 7. Ask about remaining hardware interfaces
 echo "Do you need to enable the I2C bus? (y/N):"
 read ask_i2c
 
 echo "Do you need to enable the serial port? (y/N):"
 read ask_serial
 
-# 6. Start generating the docker-compose file
-cat <<EOF > docker-compose.yml
+# 8. Start generating the docker-compose file
+cat <<EOF > docker-compose.yaml
 services:
     meshtasticd:
         container_name: $container_name
@@ -117,35 +156,50 @@ services:
         restart: unless-stopped
 EOF
 
-# 7. Append devices section conditionally
+# 9. Append devices section conditionally
 if [ -n "$usb_path" ] || [[ "$ask_spi" =~ ^[Yy]$ ]] || [[ "$ask_gpio" =~ ^[Yy]$ ]] || [[ "$ask_i2c" =~ ^[Yy]$ ]] || [[ "$ask_serial" =~ ^[Yy]$ ]]; then
-    echo "        devices:" >> docker-compose.yml
-    
+    echo "        devices:" >> docker-compose.yaml
+
     if [ -n "$usb_path" ]; then
-        echo "            - $usb_path" >> docker-compose.yml
+        echo "            - $usb_path" >> docker-compose.yaml
     fi
+
     if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
-        echo "            - /dev/spidev0.0:/dev/spidev0.0" >> docker-compose.yml
+        echo "            - /dev/spidev0.0:/dev/spidev0.0" >> docker-compose.yaml
     fi
+
     if [[ "$ask_gpio" =~ ^[Yy]$ ]]; then
-        echo "            - /dev/gpiochip0:/dev/gpiochip0" >> docker-compose.yml
-        echo "            - /dev/gpiochip4:/dev/gpiochip4" >> docker-compose.yml
+        echo "            - /dev/gpiochip0:/dev/gpiochip0" >> docker-compose.yaml
+        echo "            - /dev/gpiochip4:/dev/gpiochip4" >> docker-compose.yaml
     fi
+
     if [[ "$ask_i2c" =~ ^[Yy]$ ]]; then
-        echo "            - /dev/i2c-1:/dev/i2c-1" >> docker-compose.yml
+        echo "            - /dev/i2c-1:/dev/i2c-1" >> docker-compose.yaml
     fi
+
     if [[ "$ask_serial" =~ ^[Yy]$ ]]; then
-        echo "            - /dev/ttyS0:/dev/ttyS0" >> docker-compose.yml
+        echo "            - /dev/ttyS0:/dev/ttyS0" >> docker-compose.yaml
     fi
 fi
 
-# 8. Append static volumes block to finish the file
-cat <<EOF >> docker-compose.yml
+# 10. Append static volumes block to finish the file
+cat <<EOF >> docker-compose.yaml
         volumes:
             - ./config.yaml:/etc/meshtasticd/config.yaml:ro
             - ./config.d:/etc/meshtasticd/config.d:ro
             - ./data:/var/lib/meshtasticd
 EOF
 
-echo "Success! Your custom docker-compose.yml file and config structures are ready."
+echo ""
+echo "========================================================================"
+echo " Success!"
+echo "========================================================================"
+echo "Your custom docker-compose.yaml file and config structures are ready."
 
+if [ -n "$spi_config_file" ]; then
+    echo "SPI configuration: config.d/$spi_config_file"
+fi
+
+echo "Container name: $container_name"
+echo "========================================================================"
+```
