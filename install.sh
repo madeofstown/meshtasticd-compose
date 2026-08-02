@@ -95,6 +95,54 @@ echo "Using image: $image_name"
 
 echo ""
 
+echo "Do you need UDP multicast meshing support? This requires host network mode."
+read -r ask_host_network
+if [[ "$ask_host_network" =~ ^[Yy]$ ]]; then
+    use_host_network="yes"
+else
+    use_host_network="no"
+fi
+
+port_in_use() {
+    local port="$1"
+    if command -v ss >/dev/null 2>&1; then
+        ss -tulpn | awk '{print $5}' | grep -E "[:.]$port$" >/dev/null 2>&1
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+    else
+        return 1
+    fi
+}
+
+if [[ "$use_host_network" == "no" ]]; then
+    host_meshtastic_port=4403
+    read -r -p "Enter host port for Meshtasticd TCP service [default: 4403]: " host_meshtastic_port
+    host_meshtastic_port=${host_meshtastic_port:-4403}
+    while port_in_use "$host_meshtastic_port"; do
+        echo "Port $host_meshtastic_port is already in use on the host."
+        read -r -p "Enter another host port for Meshtasticd TCP service: " host_meshtastic_port
+        host_meshtastic_port=${host_meshtastic_port:-4403}
+    done
+
+    web_server_enabled="no"
+    host_web_port=""
+    if [[ "$image_variant" == "debian" ]]; then
+        echo "Do you plan to enable the Meshtasticd web server? (y/N):"
+        read -r ask_web
+        if [[ "$ask_web" =~ ^[Yy]$ ]]; then
+            web_server_enabled="yes"
+            host_web_port=9443
+            read -r -p "Enter host port for the optional web server [default: 9443]: " host_web_port
+            host_web_port=${host_web_port:-9443}
+            while port_in_use "$host_web_port"; do
+                echo "Port $host_web_port is already in use on the host."
+                read -r -p "Enter another host port for the web server: " host_web_port
+                host_web_port=${host_web_port:-9443}
+            done
+        fi
+    fi
+fi
+
 ## 5. Optional USB Device Verification Block
 echo "Are you using a USB-connected radio? (y/N):"
 read -r ask_usb
@@ -126,7 +174,7 @@ if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
 fi
 
 ## 6. Ask about SPI
-echo "Do you need to enable the main SPI bus? (y/N):"
+echo "Do you need to enable the main SPI bus for your radio? (y/N):"
 read -r ask_spi
 
 # Track the downloaded SPI config file
@@ -211,9 +259,18 @@ services:
         image: $image_name
         stdin_open: true
         tty: true
-        network_mode: "host"
         restart: unless-stopped
 EOF
+
+if [[ "$use_host_network" == "yes" ]]; then
+    echo "        network_mode: \"host\"" >> docker-compose.yaml
+else
+    echo "        ports:" >> docker-compose.yaml
+    echo "            - \"${host_meshtastic_port}:4403\"" >> docker-compose.yaml
+    if [[ "$web_server_enabled" == "yes" ]]; then
+        echo "            - \"${host_web_port}:9443\"" >> docker-compose.yaml
+    fi
+fi
 
 ## 9. Append devices section conditionally
 if [ -n "$usb_path" ] || [[ "$ask_spi" =~ ^[Yy]$ ]] || [[ "$ask_gpio" =~ ^[Yy]$ ]] || [[ "$ask_i2c" =~ ^[Yy]$ ]] || [[ "$ask_serial" =~ ^[Yy]$ ]]; then
@@ -256,7 +313,7 @@ echo "========================================================================"
 echo "Your custom docker-compose.yaml file and config structures are ready."
 
 if [ -n "$spi_config_file" ]; then
-    echo "SPI configuration: config.d/$spi_config_file"
+    echo "Extra radio configuration: config.d/$spi_config_file"
 fi
 
 echo "Container name: $container_name"
