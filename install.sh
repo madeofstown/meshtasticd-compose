@@ -67,6 +67,34 @@ echo "Enter a unique name for this container instance (default: meshtasticd_node
 read container_name
 container_name=${container_name:-meshtasticd_node1}
 
+echo ""
+echo "Select the Meshtasticd image track:"
+echo "  1) daily"
+echo "  2) alpha"
+echo "  3) beta"
+read -p "Track [1-3] (default: 1): " track_choice
+case "$track_choice" in
+    2) image_track="alpha";;
+    3) image_track="beta";;
+    *) image_track="daily";;
+ esac
+
+echo ""
+echo "Select the image variant:"
+echo "  1) alpine"
+echo "  2) debian"
+read -p "Variant [1-2] (default: 1): " variant_choice
+case "$variant_choice" in
+    2) image_variant="debian";;
+    *) image_variant="alpine";;
+ esac
+
+image_name="meshtastic/meshtasticd:${image_track}-${image_variant}"
+
+echo "Using image: $image_name"
+
+echo ""
+
 ## 5. Optional USB Device Verification Block
 echo "Are you using a USB-connected radio? (y/N):"
 read ask_usb
@@ -180,7 +208,7 @@ cat <<EOF > docker-compose.yaml
 services:
     meshtasticd:
         container_name: $container_name
-        image: meshtastic/meshtasticd:daily-alpine
+        image: $image_name
         stdin_open: true
         tty: true
         network_mode: "host"
