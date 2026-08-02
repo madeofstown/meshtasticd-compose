@@ -95,7 +95,7 @@ echo "Using image: $image_name"
 
 echo ""
 
-echo "Do you need UDP multicast meshing support? This requires host network mode."
+echo "Do you need UDP multicast meshing support? This requires host network mode.(y/N):"
 read -r ask_host_network
 if [[ "$ask_host_network" =~ ^[Yy]$ ]]; then
     use_host_network="yes"
