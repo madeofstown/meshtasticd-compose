@@ -145,7 +145,7 @@ if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo "the direct URL to the .yaml file below."
     echo ""
     echo "Example:"
-    echo "https://raw.githubusercontent.com/meshtastic/firmware/develop/bin/config.d/lora-LoRaPi-900M2213S.yaml"
+    echo "https://raw.githubusercontent.com/meshtastic/firmware/refs/heads/develop/bin/config.d/lora-ZebraHat_1W.yaml"
     echo ""
     echo "Press [ENTER] to skip downloading an additional configuration file."
     echo ""
