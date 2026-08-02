@@ -27,7 +27,6 @@ else
 
     if [ $? -eq 0 ] && [ -f "$CONFIG_FILE" ]; then
         echo "-> Success! Saved as $CONFIG_FILE"
-        # Ensure root ownership
         chmod 644 "$CONFIG_FILE"
     else
         echo "!! Error: Failed to download the configuration template file."
@@ -52,11 +51,8 @@ else
 fi
 
 if [ ! -z "$usb_info" ]; then
-    # Parse the Bus and Device numbers
     bus_num=$(echo "$usb_info" | awk '{print $2}')
     dev_num=$(echo "$usb_info" | awk '{print $4}' | tr -d ':')
-    
-    # Format into the actual system path
     detected_path="/dev/bus/usb/${bus_num}/${dev_num}"
     echo "-> Success! Found radio at: ${detected_path}"
     usb_path=$detected_path
@@ -75,10 +71,46 @@ container_name=${container_name:-meshtasticd_node1}
 echo "Do you need to enable the main SPI bus? (y/N):"
 read ask_spi
 
-# Automatically handle the SPI/GPIO dependency
+# Automatically handle the SPI/GPIO dependency and config.d asset gathering
 if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo "-> SPI enabled. GPIO chips will be automatically enabled for radio pins."
     ask_gpio="y"
+
+    echo "-> Fetching available SPI radio configuration profiles from GitHub..."
+    # Queries the GitHub API to dynamically pull the text list of files from bin/config.d
+    API_URL="https://github.com"
+    # To parse without external tools like jq, we grab the raw folder directory listing directly
+    raw_listing=$(curl -sSL "https://github.com")
+    
+    # Filter out only the .yaml files matching "lora-" prefix
+    mapfile -t lora_files < <(echo "$raw_listing" | grep -oP '"name": "\Klora-[^"]+\.yaml')
+
+    if [ ${#lora_files[@]} -eq 0 ]; then
+        echo "!! Warning: Could not auto-fetch the list from GitHub API."
+        echo "Please type out the exact filename you want to download (e.g., lora-PiTastic-1W.yaml):"
+        read chosen_file
+    else
+        echo "--------------------------------------------------"
+        echo "Select the SPI radio configuration file to use:"
+        echo "--------------------------------------------------"
+        select chosen_file in "${lora_files[@]}"; do
+            if [ -n "$chosen_file" ]; then
+                echo "-> You selected: $chosen_file"
+                break
+            else
+                echo "Invalid selection. Please choose a valid number."
+            fi
+        done
+    fi
+
+    # Download the selected hardware profile directly into config.d/
+    if [ -n "$chosen_file" ]; then
+        RAW_SPI_URL="https://githubusercontent.com"
+        echo "-> Downloading hardware configuration file..."
+        curl -sSL "$RAW_SPI_URL" -o "config.d/$chosen_file"
+        chmod 644 "config.d/$chosen_file"
+        echo "-> Saved profile to config.d/$chosen_file"
+    fi
 else
     echo "Do you need to enable GPIO controller chips manually? (y/N):"
     read ask_gpio
