@@ -1,19 +1,10 @@
 #!/bin/bash
-## Usage Instructions:
-# 1. Place this script in the directory where you want to set up the meshtasticd container.
-# 2. chmod +x install.sh to make the script executable.
-# 3. Run the script: ./install.sh
 
-## 1. Ensure the current directory is writable
-#
-# The script normally runs as the current user.
-# If the current directory is not writable, automatically re-run
-# the script with sudo so files can be created there.
+# Meshtasticd Docker Compose installer
+# Usage: chmod +x install.sh && ./install.sh
 
 if [ "$EUID" -ne 0 ]; then
-    # Test whether we can create a temporary file in the current directory
     test_file=".meshtasticd_install_write_test_$$"
-
     if touch "$test_file" 2>/dev/null; then
         rm -f "$test_file"
         echo "-> Current directory is writable. Running as current user."
@@ -31,9 +22,66 @@ if [ "$EUID" -ne 0 ]; then
     fi
 fi
 
-## 2. Download the config.yaml template file
 CONFIG_URL="https://raw.githubusercontent.com/meshtastic/firmware/refs/heads/develop/bin/config-dist.yaml"
 CONFIG_FILE="config.yaml"
+
+port_in_use() {
+    local port="$1"
+    if [ -z "$port" ]; then
+        return 0
+    fi
+
+    if command -v ss >/dev/null 2>&1; then
+        ss -tulpn 2>/dev/null | awk '{print $5}' | grep -E ":[.:]?$port$" >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            return 0
+        else
+            return 1
+        fi
+    elif command -v lsof >/dev/null 2>&1; then
+        lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            return 0
+        else
+            return 1
+        fi
+    fi
+
+    return 2
+}
+
+ensure_port() {
+    local var_name="$1"
+    local prompt="$2"
+    local default_port="$3"
+    local port=""
+
+    while true; do
+        read -r -p "$prompt" port
+        port=${port:-$default_port}
+
+        if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+            echo "!! Error: Please enter a valid numeric port between 1 and 65535."
+            continue
+        fi
+
+        port_in_use "$port"
+        case $? in
+            0)
+                echo "Port $port is already in use on the host."
+                ;;
+            1)
+                eval "$var_name=$port"
+                return 0
+                ;;
+            2)
+                echo "-> Warning: cannot verify port usage because neither ss nor lsof is installed."
+                eval "$var_name=$port"
+                return 0
+                ;;
+        esac
+    done
+}
 
 echo "Checking for configuration template..."
 if [ -f "$CONFIG_FILE" ]; then
@@ -49,20 +97,17 @@ else
         exit 1
     fi
 
-    if [ $? -eq 0 ] && [ -f "$CONFIG_FILE" ]; then
-        echo "-> Success! Saved as $CONFIG_FILE"
-        chmod 644 "$CONFIG_FILE"
-    else
+    if [ $? -ne 0 ] || [ ! -f "$CONFIG_FILE" ]; then
         echo "!! Error: Failed to download the configuration template file."
         exit 1
     fi
+
+    chmod 644 "$CONFIG_FILE"
+    echo "-> Success! Saved as $CONFIG_FILE"
 fi
 
-## 3. Create necessary persistent directories explicitly
-echo "Ensuring required folders exist..."
 mkdir -p config.d data
 
-## 4. Gather container instance name first
 echo "Enter a unique name for this container instance (default: meshtasticd_node1):"
 read -r container_name
 container_name=${container_name:-meshtasticd_node1}
@@ -94,8 +139,7 @@ image_name="meshtastic/meshtasticd:${image_track}-${image_variant}"
 echo "Using image: $image_name"
 
 echo ""
-
-echo "Do you need UDP multicast meshing support? This requires host network mode.(y/N):"
+echo "Do you need UDP multicast meshing support? This requires host network mode. (y/N):"
 read -r ask_host_network
 if [[ "$ask_host_network" =~ ^[Yy]$ ]]; then
     use_host_network="yes"
@@ -103,63 +147,58 @@ else
     use_host_network="no"
 fi
 
-port_in_use() {
-    local port="$1"
-    if command -v ss >/dev/null 2>&1; then
-        ss -tulpn | awk '{print $5}' | grep -E "[:.]$port$" >/dev/null 2>&1
-    elif command -v lsof >/dev/null 2>&1; then
-        lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
-    else
-        return 1
-    fi
-}
+host_meshtastic_port=4403
+ensure_port host_meshtastic_port "Enter host port for Meshtasticd TCP service [default: 4403]: " 4403
 
-if [[ "$use_host_network" == "no" ]]; then
-    host_meshtastic_port=4403
-    read -r -p "Enter host port for Meshtasticd TCP service [default: 4403]: " host_meshtastic_port
-    host_meshtastic_port=${host_meshtastic_port:-4403}
-    while port_in_use "$host_meshtastic_port"; do
-        echo "Port $host_meshtastic_port is already in use on the host."
-        read -r -p "Enter another host port for Meshtasticd TCP service: " host_meshtastic_port
-        host_meshtastic_port=${host_meshtastic_port:-4403}
-    done
-
-    web_server_enabled="no"
-    host_web_port=""
-    if [[ "$image_variant" == "debian" ]]; then
-        echo "Do you plan to enable the Meshtasticd web server? (y/N):"
-        read -r ask_web
-        if [[ "$ask_web" =~ ^[Yy]$ ]]; then
-            web_server_enabled="yes"
-            host_web_port=9443
-            read -r -p "Enter host port for the optional web server [default: 9443]: " host_web_port
-            host_web_port=${host_web_port:-9443}
-            while port_in_use "$host_web_port"; do
-                echo "Port $host_web_port is already in use on the host."
-                read -r -p "Enter another host port for the web server: " host_web_port
-                host_web_port=${host_web_port:-9443}
-            done
-        fi
+web_server_enabled="no"
+host_web_port=9443
+if [[ "$image_variant" == "debian" ]]; then
+    echo "Do you plan to enable the Meshtasticd web server? (y/N):"
+    read -r ask_web
+    if [[ "$ask_web" =~ ^[Yy]$ ]]; then
+        web_server_enabled="yes"
+        ensure_port host_web_port "Enter host port for the optional web server [default: 9443]: " 9443
     fi
 fi
 
-## 5. Optional USB Device Verification Block
-echo "Are you using a USB-connected radio? (y/N):"
-read -r ask_usb
+if [[ "$use_host_network" == "yes" ]] && [ -f "$CONFIG_FILE" ]; then
+    if grep -q '^[[:space:]]*#[[:space:]]*APIPort:' "$CONFIG_FILE"; then
+        sed -i "s/^[[:space:]]*#[[:space:]]*APIPort:.*/  APIPort: $host_meshtastic_port/" "$CONFIG_FILE"
+    elif grep -q '^[[:space:]]*APIPort:' "$CONFIG_FILE"; then
+        sed -i "s/^[[:space:]]*APIPort:.*/  APIPort: $host_meshtastic_port/" "$CONFIG_FILE"
+    else
+        echo "  APIPort: $host_meshtastic_port" >> "$CONFIG_FILE"
+    fi
+fi
 
+if [[ "$image_variant" == "debian" ]] && [[ "$web_server_enabled" == "yes" ]] && [ -f "$CONFIG_FILE" ]; then
+    sed -i \
+        -e 's/^[[:space:]]*#[[:space:]]*Webserver:/Webserver:/' \
+        -e 's/^[[:space:]]*#[[:space:]]*\(Port:.*\)/  \1/' \
+        -e 's/^[[:space:]]*#[[:space:]]*\(RootPath:.*\)/  \1/' \
+        -e 's/^[[:space:]]*#[[:space:]]*\(SSLKey:.*\)/  \1/' \
+        -e 's/^[[:space:]]*#[[:space:]]*\(SSLCert:.*\)/  \1/' \
+        "$CONFIG_FILE"
+    if [[ "$use_host_network" == "yes" ]] && [ "$host_web_port" != "9443" ]; then
+        sed -i "s/^[[:space:]]*Port:[[:space:]]*9443/  Port: $host_web_port/" "$CONFIG_FILE"
+    fi
+fi
+
+echo "Do you have a USB-connected radio? (y/N):"
+read -r ask_usb
 usb_path=""
 if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
     echo "Scanning for CH341-based radio..."
     TARGET_DEVICE="QinHeng Electronics CH341 in EPP/MEM/I2C mode, EPP/I2C adapter"
 
     if command -v lsusb >/dev/null 2>&1; then
-        usb_info=$(lsusb | grep "$TARGET_DEVICE")
+        usb_info=$(lsusb | grep "$TARGET_DEVICE" || true)
     else
         usb_info=""
         echo "-> 'lsusb' command not found. Skipping auto-detection."
     fi
 
-    if [ ! -z "$usb_info" ]; then
+    if [ -n "$usb_info" ]; then
         bus_num=$(echo "$usb_info" | awk '{print $2}')
         dev_num=$(echo "$usb_info" | awk '{print $4}' | tr -d ':')
         detected_path="/dev/bus/usb/${bus_num}/${dev_num}"
@@ -167,20 +206,15 @@ if [[ "$ask_usb" =~ ^[Yy]$ ]]; then
         usb_path=$detected_path
     else
         echo "-> Radio not automatically detected."
-        echo "Enter the USB device path from 'lsusb' manually (default: /dev/bus/usb/001/003):"
-        read -r manual_path
+        read -r -p "Enter the USB device path manually (default: /dev/bus/usb/001/003): " manual_path
         usb_path=${manual_path:-/dev/bus/usb/001/003}
     fi
 fi
 
-## 6. Ask about SPI
 echo "Do you need to enable the main SPI bus for your radio? (y/N):"
 read -r ask_spi
-
-# Track the downloaded SPI config file
 spi_config_file=""
 
-# Handle SPI configuration
 if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo "-> SPI enabled. GPIO chips will be automatically enabled for radio pins."
     ask_gpio="y"
@@ -199,21 +233,16 @@ if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
     echo ""
 
     read -r -p "Config file URL (optional): " spi_config_url
-
-    # Only download a config file if a URL was provided
     if [ -n "$spi_config_url" ]; then
-
-        # Extract filename from URL
         spi_config_file=$(basename "${spi_config_url%%\?*}")
-
         if [ -z "$spi_config_file" ] || [[ "$spi_config_file" != *.yaml ]]; then
             echo "!! Error: The provided URL does not appear to point to a .yaml file."
             exit 1
         fi
 
         echo "-> Downloading SPI radio configuration..."
-        echo "-> URL: $spi_config_url"
-        echo "-> Destination: config.d/$spi_config_file"
+        echo "   URL: $spi_config_url"
+        echo "   Destination: config.d/$spi_config_file"
 
         if command -v curl >/dev/null 2>&1; then
             curl -fSL "$spi_config_url" -o "config.d/$spi_config_file"
@@ -224,34 +253,28 @@ if [[ "$ask_spi" =~ ^[Yy]$ ]]; then
             exit 1
         fi
 
-        if [ $? -eq 0 ] && [ -s "config.d/$spi_config_file" ]; then
-            chmod 644 "config.d/$spi_config_file"
-            echo "-> Success! SPI configuration saved to config.d/$spi_config_file"
-        else
+        if [ $? -ne 0 ] || [ ! -s "config.d/$spi_config_file" ]; then
             echo "!! Error: Failed to download the SPI configuration file."
             rm -f "config.d/$spi_config_file"
             exit 1
         fi
 
+        chmod 644 "config.d/$spi_config_file"
+        echo "-> Success! SPI configuration saved to config.d/$spi_config_file"
     else
         echo "-> No additional SPI configuration file specified."
-        echo "-> Continuing without downloading an SPI configuration profile."
     fi
-
 else
-    # Only ask about GPIO manually when SPI is not being used
     echo "Do you need to enable GPIO controller chips manually? (y/N):"
     read -r ask_gpio
 fi
 
-## 7. Ask about remaining hardware interfaces
 echo "Do you need to enable the I2C bus? (y/N):"
 read -r ask_i2c
 
 echo "Do you need to enable the serial port? (y/N):"
 read -r ask_serial
 
-## 8. Start generating the docker-compose file
 cat <<EOF > docker-compose.yaml
 services:
     meshtasticd:
@@ -272,7 +295,6 @@ else
     fi
 fi
 
-## 9. Append devices section conditionally
 if [ -n "$usb_path" ] || [[ "$ask_spi" =~ ^[Yy]$ ]] || [[ "$ask_gpio" =~ ^[Yy]$ ]] || [[ "$ask_i2c" =~ ^[Yy]$ ]] || [[ "$ask_serial" =~ ^[Yy]$ ]]; then
     echo "        devices:" >> docker-compose.yaml
 
@@ -298,7 +320,6 @@ if [ -n "$usb_path" ] || [[ "$ask_spi" =~ ^[Yy]$ ]] || [[ "$ask_gpio" =~ ^[Yy]$ 
     fi
 fi
 
-## 10. Append static volumes block to finish the file
 cat <<EOF >> docker-compose.yaml
         volumes:
             - ./config.yaml:/etc/meshtasticd/config.yaml:ro
@@ -308,13 +329,22 @@ EOF
 
 echo ""
 echo "========================================================================"
-echo " Success!"
+echo "Success!"
 echo "========================================================================"
-echo "Your custom docker-compose.yaml file and config structures are ready."
-
+echo "Generated docker-compose.yaml and configuration files in the current directory."
 if [ -n "$spi_config_file" ]; then
-    echo "Extra radio configuration: config.d/$spi_config_file"
+    echo "SPI configuration: config.d/$spi_config_file"
+fi
+if [ -n "$usb_path" ]; then
+    echo "USB device path: $usb_path"
+fi
+if [[ "$web_server_enabled" == "yes" ]]; then
+    echo "Web server enabled on host port $host_web_port."
+fi
+if [[ "$use_host_network" == "yes" ]]; then
+    echo "Host networking is enabled."
+else
+    echo "Meshtasticd TCP service is available on host port $host_meshtastic_port."
 fi
 
-echo "Container name: $container_name"
-echo "========================================================================"
+echo "Run 'docker compose up -d' to start the container."
