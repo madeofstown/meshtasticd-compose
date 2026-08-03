@@ -21,7 +21,7 @@ Place `install.sh` in the directory where you want to keep the generated Docker 
 
 Download and run the installer in one command:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/madeofstown/meshtasticd-compose/main/install.sh | bash
+bash <(curl -fsSL https://raw.githubusercontent.com/madeofstown/meshtasticd-compose/main/install.sh)
 ```
 
 ## Generated files and directories
