@@ -333,16 +333,16 @@ echo "Success!"
 echo "========================================================================"
 echo "Generated docker-compose.yaml and configuration files in the current directory."
 if [ -n "$spi_config_file" ]; then
-    echo "SPI configuration: config.d/$spi_config_file"
+    echo "SPI radio configuration: config.d/$spi_config_file"
 fi
 if [ -n "$usb_path" ]; then
     echo "USB device path: $usb_path"
 fi
-if [[ "$web_server_enabled" == "yes" ]]; then
-    echo "Web server enabled on host port $host_web_port."
-fi
 if [[ "$use_host_network" == "yes" ]]; then
     echo "Host networking is enabled."
+fi
+if [[ "$web_server_enabled" == "yes" ]]; then
+    echo "Web server enabled on host port $host_web_port."
 fi
 echo "Meshtasticd TCP service is enabled on host port $host_meshtastic_port."
 echo "Run 'docker compose up -d' to start the container after you are finished making changes to the configuration files."
