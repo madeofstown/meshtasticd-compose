@@ -121,8 +121,8 @@ read -r -p "Track [1-3] (default: 1): " track_choice
 case "$track_choice" in
     2) image_track="alpha";;
     3) image_track="beta";;
-    *) image_track="daily";;
- esac
+     *) image_track="daily";;
+    esac
 
 echo ""
 echo "Select the image variant:"
@@ -131,8 +131,8 @@ echo "  2) debian"
 read -r -p "Variant [1-2] (default: 1): " variant_choice
 case "$variant_choice" in
     2) image_variant="debian";;
-    *) image_variant="alpine";;
- esac
+     *) image_variant="alpine";;
+    esac
 
 image_name="meshtastic/meshtasticd:${image_track}-${image_variant}"
 
@@ -343,8 +343,6 @@ if [[ "$web_server_enabled" == "yes" ]]; then
 fi
 if [[ "$use_host_network" == "yes" ]]; then
     echo "Host networking is enabled."
-else
-    echo "Meshtasticd TCP service is available on host port $host_meshtastic_port."
 fi
-
-echo "Run 'docker compose up -d' to start the container."
+echo "Meshtasticd TCP service is enabled on host port $host_meshtastic_port."
+echo "Run 'docker compose up -d' to start the container after you are finished making changes to the configuration files."
