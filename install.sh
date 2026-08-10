@@ -25,6 +25,18 @@ fi
 CONFIG_URL="https://raw.githubusercontent.com/meshtastic/firmware/refs/heads/develop/bin/config-dist.yaml"
 CONFIG_FILE="config.yaml"
 
+# Detect Raspberry Pi 5
+is_pi5="no"
+
+if [ -r /proc/device-tree/model ]; then
+    pi_model=$(tr -d '\0' < /proc/device-tree/model)
+
+    if [[ "$pi_model" == *"Raspberry Pi 5"* ]]; then
+        is_pi5="yes"
+        echo "-> Raspberry Pi 5 detected."
+    fi
+fi
+
 port_in_use() {
     local port="$1"
     if [ -z "$port" ]; then
@@ -308,7 +320,6 @@ if [ -n "$usb_path" ] || [[ "$ask_spi" =~ ^[Yy]$ ]] || [[ "$ask_gpio" =~ ^[Yy]$ 
 
     if [[ "$ask_gpio" =~ ^[Yy]$ ]]; then
         echo "            - /dev/gpiochip0:/dev/gpiochip0" >> docker-compose.yaml
-        echo "            - /dev/gpiochip4:/dev/gpiochip4" >> docker-compose.yaml
     fi
 
     if [[ "$ask_i2c" =~ ^[Yy]$ ]]; then
@@ -322,6 +333,13 @@ fi
 
 cat <<EOF >> docker-compose.yaml
         volumes:
+EOF
+
+if [[ "$is_pi5" == "yes" ]] && [[ "$ask_gpio" =~ ^[Yy]$ ]]; then
+    echo "            - /sys:/sys:ro" >> docker-compose.yaml
+fi
+
+cat <<EOF >> docker-compose.yaml
             - ./config.yaml:/etc/meshtasticd/config.yaml:ro
             - ./config.d:/etc/meshtasticd/config.d:ro
             - ./data:/var/lib/meshtasticd
